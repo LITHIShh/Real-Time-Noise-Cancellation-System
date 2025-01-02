@@ -1,0 +1,4 @@
+streamlit==1.18.1
+pyaudio==0.2.11
+numpy==1.24.0
+wave==0.0.2
