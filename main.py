@@ -1,11 +1,9 @@
 import streamlit as st
-import numpy as np
 import pyaudio
-import webrtcvad
+import numpy as np
 import wave
 import os
 import time
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, RTCConfiguration
 
 # Constants for audio processing
 CHUNK = 1024  # Number of audio frames per buffer
@@ -33,7 +31,7 @@ def noise_cancellation(input_audio, mode="single_speaker", reduction_level=0.8):
     processed_audio = input_audio - reduction_level * noise_profile
     return np.clip(processed_audio, -32768, 32767).astype(np.int16)
 
-# Streamlit app using streamlit-webrtc
+# Streamlit app
 def main():
     st.set_page_config(
         page_title="Noise Cancellation",
@@ -42,7 +40,7 @@ def main():
         initial_sidebar_state="expanded",
     )
 
-    st.title("🎧 Real-Time Noise Cancellation System using streamlit-webrtc")
+    st.title("🎧 Real-Time Noise Cancellation System")
 
     st.sidebar.title("🔧 Controls")
     st.sidebar.markdown(
@@ -57,8 +55,6 @@ def main():
     reduction_level = st.sidebar.slider(
         "Noise Reduction Level", 0.0, 1.0, 0.8, 0.1
     )
-
-    # Start/Stop buttons
     start_button = st.sidebar.button("▶️ Start Noise Cancellation")
     stop_button = st.sidebar.button("⏹ Stop Noise Cancellation")
 
@@ -68,43 +64,54 @@ def main():
     if stop_button:
         st.session_state.is_running = False
 
-    # We will create a custom AudioProcessor to apply noise cancellation
-    class NoiseCancellationProcessor(AudioProcessorBase):
-        def __init__(self, mode, reduction_level):
-            self.mode = mode
-            self.reduction_level = reduction_level
-
-        def transform(self, frame):
-            if st.session_state.is_running:
-                input_audio = np.frombuffer(frame.data, dtype=np.int16)
-                processed_audio = noise_cancellation(input_audio, self.mode, self.reduction_level)
-                return processed_audio.tobytes()
-            return frame.data
-
-    # Streamlit-webrtc
-    rtc_config = RTCConfiguration(
-        ice_servers=[]
-    )  # You can specify ICE servers if needed
-
-    webrtc_streamer(
-        key="noise-cancellation",
-        mode=webrtc_streamer.RECEIVE_MODE,
-        rtc_configuration=rtc_config,
-        audio_processor_factory=lambda: NoiseCancellationProcessor(mode, reduction_level),
-    )
-
+    # Output directory for processed audio
     output_dir = "output_audio"
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "processed_audio.wav")
 
-    # Save audio file
-    def save_audio(frames):
-        with wave.open(output_file, "wb") as wf:
+    if st.session_state.is_running:
+        st.write("🔊 Noise cancellation is running...")
+
+        p = pyaudio.PyAudio()
+        stream = p.open(
+            format=FORMAT,
+            channels=CHANNELS,
+            rate=RATE,
+            input=True,
+            output=True,
+            frames_per_buffer=CHUNK,
+        )
+
+        frames = []
+
+        try:
+            while st.session_state.is_running:
+                raw_data = stream.read(CHUNK, exception_on_overflow=False)
+                input_audio = np.frombuffer(raw_data, dtype=np.int16)
+                processed_audio = noise_cancellation(
+                    input_audio, mode=mode, reduction_level=reduction_level
+                )
+                stream.write(processed_audio.tobytes())
+                frames.append(processed_audio.tobytes())
+
+                # Allow Streamlit to update the UI
+                time.sleep(0.01)
+        except Exception as e:
+            st.error(f"Error: {e}")
+        finally:
+            stream.stop_stream()
+            stream.close()
+            p.terminate()
+
+            # Save the processed audio
+            wf = wave.open(output_file, "wb")
             wf.setnchannels(CHANNELS)
-            wf.setsampwidth(pyaudio.PyAudio().get_sample_size(FORMAT))
+            wf.setsampwidth(p.get_sample_size(FORMAT))
             wf.setframerate(RATE)
             wf.writeframes(b"".join(frames))
-        st.success(f"✅ Processed audio saved to {output_file}")
+            wf.close()
+
+            st.success(f"✅ Processed audio saved to {output_file}")
 
     # Playback the saved audio
     if os.path.exists(output_file) and not st.session_state.is_running:
