@@ -1,4 +1,4 @@
-port audio
+port_audio
 ConfigParser
 setuptools
 PyAudio
