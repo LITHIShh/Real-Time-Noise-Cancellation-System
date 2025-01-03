@@ -15,11 +15,6 @@ RATE = 44100  # Sampling rate in Hz
 def noise_cancellation(input_audio, mode="single_speaker", reduction_level=0.8):
     """
     Perform noise cancellation on the input audio.
-
-    :param input_audio: Numpy array of audio samples.
-    :param mode: 'single_speaker' or 'multiple_speakers'.
-    :param reduction_level: Strength of noise reduction (0 to 1).
-    :return: Processed audio samples.
     """
     if mode == "single_speaker":
         noise_profile = np.mean(input_audio)  # Estimate noise as mean
@@ -31,72 +26,43 @@ def noise_cancellation(input_audio, mode="single_speaker", reduction_level=0.8):
     processed_audio = input_audio - reduction_level * noise_profile
     return np.clip(processed_audio, -32768, 32767).astype(np.int16)
 
-# Function to list audio devices
-def list_audio_devices():
-    p = pyaudio.PyAudio()
-    devices = []
-    for i in range(p.get_device_count()):
-        info = p.get_device_info_by_index(i)
-        devices.append((i, info["name"]))
-    p.terminate()
-    return devices
-
 # Streamlit app
 def main():
-    st.set_page_config(
-        page_title="Noise Cancellation",
-        page_icon="🎧",
-        layout="wide",
-        initial_sidebar_state="expanded",
-    )
+    st.set_page_config(page_title="Noise Cancellation", page_icon="🎧")
 
     st.title("🎧 Real-Time Noise Cancellation System")
 
-    st.sidebar.title("🔧 Controls")
-    st.sidebar.markdown(
-        """Control the real-time noise cancellation process using the buttons below."""
-    )
+    # Sidebar controls
+    mode = st.sidebar.radio("Mode", ["single_speaker", "multiple_speakers"])
+    reduction_level = st.sidebar.slider("Reduction Level", 0.0, 1.0, 0.8, 0.1)
 
-    # Persistent state for buttons
+    start_button = st.sidebar.button("Start")
+    stop_button = st.sidebar.button("Stop")
+
+    # Ensure `is_running` exists in the session state
     if "is_running" not in st.session_state:
         st.session_state.is_running = False
 
-    mode = st.sidebar.radio("Select Mode", ("single_speaker", "multiple_speakers"))
-    reduction_level = st.sidebar.slider(
-        "Noise Reduction Level", 0.0, 1.0, 0.8, 0.1
-    )
-
-    # Display audio device options
-    devices = list_audio_devices()
-    input_device = st.sidebar.selectbox(
-        "Select Input Device", devices, format_func=lambda x: f"{x[1]}"
-    )
-    output_device = st.sidebar.selectbox(
-        "Select Output Device", devices, format_func=lambda x: f"{x[1]}"
-    )
-
-    start_button = st.sidebar.button("▶️ Start Noise Cancellation")
-    stop_button = st.sidebar.button("⏹ Stop Noise Cancellation")
-
+    # Manage start and stop states
     if start_button:
         st.session_state.is_running = True
-
     if stop_button:
         st.session_state.is_running = False
 
-    # Output directory for processed audio
+    # Initialize frames to ensure no UnboundLocalError
+    frames = []
+
+    # Directory for saving processed audio
     output_dir = "output_audio"
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "processed_audio.wav")
 
-    # Initialize frames to ensure it's always defined
-    frames = []
-
     if st.session_state.is_running:
         st.write("🔊 Noise cancellation is running...")
 
-        p = pyaudio.PyAudio()
         try:
+            # Set up PyAudio
+            p = pyaudio.PyAudio()
             stream = p.open(
                 format=FORMAT,
                 channels=CHANNELS,
@@ -104,8 +70,6 @@ def main():
                 input=True,
                 output=True,
                 frames_per_buffer=CHUNK,
-                input_device_index=input_device[0],
-                output_device_index=output_device[0],
             )
 
             try:
@@ -118,34 +82,37 @@ def main():
                     stream.write(processed_audio.tobytes())
                     frames.append(processed_audio.tobytes())
 
-                    # Allow Streamlit to update the UI
+                    # Allow Streamlit UI to update
                     time.sleep(0.01)
-            except Exception as e:
-                st.error(f"Error during streaming: {e}")
+            except Exception as stream_error:
+                st.error(f"Streaming error: {stream_error}")
             finally:
                 stream.stop_stream()
                 stream.close()
-        except Exception as e:
-            st.error(f"Error initializing audio stream: {e}")
+        except Exception as init_error:
+            st.error(f"Initialization error: {init_error}")
         finally:
             p.terminate()
 
-        # Save the processed audio only if there are valid frames
+        # Save frames if any data was recorded
         if frames:
-            wf = wave.open(output_file, "wb")
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(p.get_sample_size(FORMAT))
-            wf.setframerate(RATE)
-            wf.writeframes(b"".join(frames))
-            wf.close()
-            st.success(f"✅ Processed audio saved to {output_file}")
+            try:
+                with wave.open(output_file, "wb") as wf:
+                    wf.setnchannels(CHANNELS)
+                    wf.setsampwidth(p.get_sample_size(FORMAT))
+                    wf.setframerate(RATE)
+                    wf.writeframes(b"".join(frames))
+                st.success(f"Processed audio saved to {output_file}")
+            except Exception as save_error:
+                st.error(f"Error saving audio: {save_error}")
+    else:
+        st.write("🔇 Noise cancellation is stopped.")
 
-    # Playback the saved audio
+    # Play back processed audio
     if os.path.exists(output_file) and not st.session_state.is_running:
         st.subheader("🎵 Processed Audio Playback")
         with open(output_file, "rb") as audio_file:
             st.audio(audio_file.read(), format="audio/wav")
-            st.success("Audio playback ready. Use the controls above to listen.")
 
 if __name__ == "__main__":
     main()
