@@ -89,6 +89,9 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "processed_audio.wav")
 
+    # Initialize frames to ensure it's always defined
+    frames = []
+
     if st.session_state.is_running:
         st.write("🔊 Noise cancellation is running...")
 
@@ -104,8 +107,6 @@ def main():
                 input_device_index=input_device[0],
                 output_device_index=output_device[0],
             )
-
-            frames = []
 
             try:
                 while st.session_state.is_running:
@@ -129,7 +130,7 @@ def main():
         finally:
             p.terminate()
 
-        # Save the processed audio
+        # Save the processed audio only if there are valid frames
         if frames:
             wf = wave.open(output_file, "wb")
             wf.setnchannels(CHANNELS)
