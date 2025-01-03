@@ -1,5 +1,5 @@
 
 setuptools
-pyaudio
+pyaudio==0.2.11
 streamlit
 numpy
