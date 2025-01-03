@@ -1,7 +1,3 @@
-streamlit==1.26.0
-sounddevice==0.4.6
-numpy==1.25.2
-pyaudio
-streamlit-webrtc
-webrtcvad
-opencv-python
+Streamlit
+PyAudio
+Numpy
