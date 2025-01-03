@@ -1,4 +1,5 @@
-
+port audio
+ConfigParser
 setuptools
 PyAudio
 streamlit
