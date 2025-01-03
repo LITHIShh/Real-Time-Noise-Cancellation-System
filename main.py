@@ -1,5 +1,5 @@
 import streamlit as st
-import pyaudio
+import sounddevice as sd
 import numpy as np
 import wave
 import os
@@ -7,7 +7,7 @@ import time
 
 # Constants for audio processing
 CHUNK = 1024  # Number of audio frames per buffer
-FORMAT = pyaudio.paInt16  # 16-bit resolution
+FORMAT = np.int16  # 16-bit resolution
 CHANNELS = 1  # Mono audio
 RATE = 44100  # Sampling rate in Hz
 
@@ -58,59 +58,42 @@ def main():
     start_button = st.sidebar.button("▶️ Start Noise Cancellation")
     stop_button = st.sidebar.button("⏹ Stop Noise Cancellation")
 
+    # Output directory for processed audio
+    output_dir = "output_audio"
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, "processed_audio.wav")
+
     if start_button:
         st.session_state.is_running = True
 
     if stop_button:
         st.session_state.is_running = False
 
-    # Output directory for processed audio
-    output_dir = "output_audio"
-    os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, "processed_audio.wav")
-
     if st.session_state.is_running:
         st.write("🔊 Noise cancellation is running...")
 
-        p = pyaudio.PyAudio()
-        stream = p.open(
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=RATE,
-            input=True,
-            output=True,
-            frames_per_buffer=CHUNK,
-        )
-
         frames = []
 
-        try:
+        def callback(indata, outdata, frames, time, status):
+            if status:
+                st.error(status)
+            input_audio = indata[:, 0]
+            processed_audio = noise_cancellation(
+                input_audio, mode=mode, reduction_level=reduction_level
+            )
+            outdata[:, 0] = processed_audio
+            frames.append(processed_audio.tobytes())
+
+        with sd.Stream(callback=callback, channels=CHANNELS, samplerate=RATE):
             while st.session_state.is_running:
-                raw_data = stream.read(CHUNK, exception_on_overflow=False)
-                input_audio = np.frombuffer(raw_data, dtype=np.int16)
-                processed_audio = noise_cancellation(
-                    input_audio, mode=mode, reduction_level=reduction_level
-                )
-                stream.write(processed_audio.tobytes())
-                frames.append(processed_audio.tobytes())
-
-                # Allow Streamlit to update the UI
                 time.sleep(0.01)
-        except Exception as e:
-            st.error(f"Error: {e}")
-        finally:
-            stream.stop_stream()
-            stream.close()
-            p.terminate()
 
-            # Save the processed audio
-            wf = wave.open(output_file, "wb")
+        # Save the processed audio
+        with wave.open(output_file, "wb") as wf:
             wf.setnchannels(CHANNELS)
-            wf.setsampwidth(p.get_sample_size(FORMAT))
+            wf.setsampwidth(2)  # 16-bit resolution
             wf.setframerate(RATE)
             wf.writeframes(b"".join(frames))
-            wf.close()
-
             st.success(f"✅ Processed audio saved to {output_file}")
 
     # Playback the saved audio
