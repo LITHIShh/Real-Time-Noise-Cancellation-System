@@ -4,7 +4,6 @@ import pyaudio
 import webrtcvad
 import os
 import time
-import cv2
 
 # Constants for audio processing
 CHUNK = 1024  # Number of audio frames per buffer
