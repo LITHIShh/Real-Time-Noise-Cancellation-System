@@ -13,18 +13,10 @@ RATE = 44100  # Sampling rate in Hz
 
 # Noise cancellation function
 def noise_cancellation(input_audio, mode="single_speaker", reduction_level=0.8):
-    """
-    Perform noise cancellation on the input audio.
-
-    :param input_audio: Numpy array of audio samples.
-    :param mode: 'single_speaker' or 'multiple_speakers'.
-    :param reduction_level: Strength of noise reduction (0 to 1).
-    :return: Processed audio samples.
-    """
     if mode == "single_speaker":
-        noise_profile = np.mean(input_audio)  # Estimate noise as mean
+        noise_profile = np.mean(input_audio)
     elif mode == "multiple_speakers":
-        noise_profile = np.median(input_audio)  # Estimate noise as median
+        noise_profile = np.median(input_audio)
     else:
         raise ValueError("Invalid mode. Choose 'single_speaker' or 'multiple_speakers'.")
 
@@ -47,7 +39,6 @@ def main():
         """Control the real-time noise cancellation process using the buttons below."""
     )
 
-    # Persistent state for buttons
     if "is_running" not in st.session_state:
         st.session_state.is_running = False
 
@@ -58,7 +49,6 @@ def main():
     start_button = st.sidebar.button("▶️ Start Noise Cancellation")
     stop_button = st.sidebar.button("⏹ Stop Noise Cancellation")
 
-    # Output directory for processed audio
     output_dir = "output_audio"
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "processed_audio.wav")
@@ -73,6 +63,7 @@ def main():
         st.write("🔊 Noise cancellation is running...")
 
         frames = []
+        device_id = 0  # Replace with the correct device ID
 
         def callback(indata, outdata, frames, time, status):
             if status:
@@ -84,19 +75,17 @@ def main():
             outdata[:, 0] = processed_audio
             frames.append(processed_audio.tobytes())
 
-        with sd.Stream(callback=callback, channels=CHANNELS, samplerate=RATE):
+        with sd.Stream(callback=callback, channels=CHANNELS, samplerate=RATE, device=device_id):
             while st.session_state.is_running:
                 time.sleep(0.01)
 
-        # Save the processed audio
         with wave.open(output_file, "wb") as wf:
             wf.setnchannels(CHANNELS)
-            wf.setsampwidth(2)  # 16-bit resolution
+            wf.setsampwidth(2)
             wf.setframerate(RATE)
             wf.writeframes(b"".join(frames))
             st.success(f"✅ Processed audio saved to {output_file}")
 
-    # Playback the saved audio
     if os.path.exists(output_file) and not st.session_state.is_running:
         st.subheader("🎵 Processed Audio Playback")
         with open(output_file, "rb") as audio_file:
