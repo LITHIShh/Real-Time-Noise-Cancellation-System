@@ -1,6 +1,3 @@
-port_audio
-ConfigParser
-setuptools
-PyAudio
-streamlit
-numpy
+streamlit==1.26.0
+sounddevice==0.4.6
+numpy==1.25.2
