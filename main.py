@@ -23,6 +23,14 @@ def noise_cancellation(input_audio, mode="single_speaker", reduction_level=0.8):
     processed_audio = input_audio - reduction_level * noise_profile
     return np.clip(processed_audio, -32768, 32767).astype(np.int16)
 
+# Function to find a valid audio device
+def find_valid_device():
+    devices = sd.query_devices()
+    for i, device in enumerate(devices):
+        if device['max_input_channels'] > 0:  # Check if the device has input channels
+            return i  # Return the first valid device ID
+    return None  # No valid device found
+
 # Streamlit app
 def main():
     st.set_page_config(
@@ -63,28 +71,33 @@ def main():
         st.write("🔊 Noise cancellation is running...")
 
         frames = []
-        device_id = 0  # Replace with the correct device ID
+        device_id = find_valid_device()  # Get a valid device ID
 
-        def callback(indata, outdata, frames, time, status):
-            if status:
-                st.error(status)
-            input_audio = indata[:, 0]
-            processed_audio = noise_cancellation(
-                input_audio, mode=mode, reduction_level=reduction_level
-            )
-            outdata[:, 0] = processed_audio
-            frames.append(processed_audio.tobytes())
+        if device_id is not None:
+            st.write(f"Using device ID: {device_id}")
 
-        with sd.Stream(callback=callback, channels=CHANNELS, samplerate=RATE, device=device_id):
-            while st.session_state.is_running:
-                time.sleep(0.01)
+            def callback(indata, outdata, frames, time, status):
+                if status:
+                    st.error(status)
+                input_audio = indata[:, 0]
+                processed_audio = noise_cancellation(
+                    input_audio, mode=mode, reduction_level=reduction_level
+                )
+                outdata[:, 0] = processed_audio
+                frames.append(processed_audio.tobytes())
 
-        with wave.open(output_file, "wb") as wf:
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(2)
-            wf.setframerate(RATE)
-            wf.writeframes(b"".join(frames))
-            st.success(f"✅ Processed audio saved to {output_file}")
+            with sd.Stream(callback=callback, channels=CHANNELS, samplerate=RATE, device=device_id):
+                while st.session_state.is_running:
+                    time.sleep(0.01)
+
+            with wave.open(output_file, "wb") as wf:
+                wf.setnchannels(CHANNELS)
+                wf.setsampwidth(2)
+                wf.setframerate(RATE)
+                wf.writeframes(b"".join(frames))
+                st.success(f"✅ Processed audio saved to {output_file}")
+        else:
+            st.error("No valid audio input devices found.")
 
     if os.path.exists(output_file) and not st.session_state.is_running:
         st.subheader("🎵 Processed Audio Playback")
