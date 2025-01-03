@@ -1,4 +1,4 @@
-
+--upgrade pip
 setuptools
 pyaudio==0.2.11
 streamlit
