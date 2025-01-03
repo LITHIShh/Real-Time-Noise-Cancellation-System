@@ -31,6 +31,16 @@ def noise_cancellation(input_audio, mode="single_speaker", reduction_level=0.8):
     processed_audio = input_audio - reduction_level * noise_profile
     return np.clip(processed_audio, -32768, 32767).astype(np.int16)
 
+# Function to list audio devices
+def list_audio_devices():
+    p = pyaudio.PyAudio()
+    devices = []
+    for i in range(p.get_device_count()):
+        info = p.get_device_info_by_index(i)
+        devices.append((i, info["name"]))
+    p.terminate()
+    return devices
+
 # Streamlit app
 def main():
     st.set_page_config(
@@ -55,6 +65,16 @@ def main():
     reduction_level = st.sidebar.slider(
         "Noise Reduction Level", 0.0, 1.0, 0.8, 0.1
     )
+
+    # Display audio device options
+    devices = list_audio_devices()
+    input_device = st.sidebar.selectbox(
+        "Select Input Device", devices, format_func=lambda x: f"{x[1]}"
+    )
+    output_device = st.sidebar.selectbox(
+        "Select Output Device", devices, format_func=lambda x: f"{x[1]}"
+    )
+
     start_button = st.sidebar.button("▶️ Start Noise Cancellation")
     stop_button = st.sidebar.button("⏹ Stop Noise Cancellation")
 
@@ -73,44 +93,50 @@ def main():
         st.write("🔊 Noise cancellation is running...")
 
         p = pyaudio.PyAudio()
-        stream = p.open(
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=RATE,
-            input=True,
-            output=True,
-            frames_per_buffer=CHUNK,
-        )
-
-        frames = []
-
         try:
-            while st.session_state.is_running:
-                raw_data = stream.read(CHUNK, exception_on_overflow=False)
-                input_audio = np.frombuffer(raw_data, dtype=np.int16)
-                processed_audio = noise_cancellation(
-                    input_audio, mode=mode, reduction_level=reduction_level
-                )
-                stream.write(processed_audio.tobytes())
-                frames.append(processed_audio.tobytes())
+            stream = p.open(
+                format=FORMAT,
+                channels=CHANNELS,
+                rate=RATE,
+                input=True,
+                output=True,
+                frames_per_buffer=CHUNK,
+                input_device_index=input_device[0],
+                output_device_index=output_device[0],
+            )
 
-                # Allow Streamlit to update the UI
-                time.sleep(0.01)
+            frames = []
+
+            try:
+                while st.session_state.is_running:
+                    raw_data = stream.read(CHUNK, exception_on_overflow=False)
+                    input_audio = np.frombuffer(raw_data, dtype=np.int16)
+                    processed_audio = noise_cancellation(
+                        input_audio, mode=mode, reduction_level=reduction_level
+                    )
+                    stream.write(processed_audio.tobytes())
+                    frames.append(processed_audio.tobytes())
+
+                    # Allow Streamlit to update the UI
+                    time.sleep(0.01)
+            except Exception as e:
+                st.error(f"Error during streaming: {e}")
+            finally:
+                stream.stop_stream()
+                stream.close()
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error initializing audio stream: {e}")
         finally:
-            stream.stop_stream()
-            stream.close()
             p.terminate()
 
-            # Save the processed audio
+        # Save the processed audio
+        if frames:
             wf = wave.open(output_file, "wb")
             wf.setnchannels(CHANNELS)
             wf.setsampwidth(p.get_sample_size(FORMAT))
             wf.setframerate(RATE)
             wf.writeframes(b"".join(frames))
             wf.close()
-
             st.success(f"✅ Processed audio saved to {output_file}")
 
     # Playback the saved audio
