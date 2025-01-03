@@ -74,17 +74,15 @@ def main():
             return processed_audio.tobytes()
         return frame.data
 
-    rtc_config = webrtcvad.VadConfig()
-    rtc_config.mode = webrtcvad.VadNormal  # Use normal VAD mode for noise detection
-
-    rtc_context = webrtcvad.Vad(rtc_config)
+    vad = webrtcvad.Vad()
+    vad.set_mode(0)  # Set to Normal mode (0), or adjust as necessary
 
     st.write("🔊 Noise cancellation is running...")
 
     # Streamlit-webrtc
     webrtc_ctx = webrtc.Context(
         audio_config=webrtc.AudioConfig(channels=CHANNELS, sample_rate=RATE),
-        audio_processor_factory=lambda: webrtcvad.VadProcessor(rtc_context, audio_callback),
+        audio_processor_factory=lambda: webrtcvad.VadProcessor(vad, audio_callback),
     )
     
     if webrtc_ctx.running():
