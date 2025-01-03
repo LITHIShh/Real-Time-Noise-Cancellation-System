@@ -4,3 +4,4 @@ numpy==1.25.2
 pyaudio
 streamlit-webrtc
 webrtcvad
+opencv2
