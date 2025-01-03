@@ -2,8 +2,10 @@ import streamlit as st
 import numpy as np
 import pyaudio
 import webrtcvad
+import wave
 import os
 import time
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, RTCConfiguration
 
 # Constants for audio processing
 CHUNK = 1024  # Number of audio frames per buffer
@@ -66,27 +68,30 @@ def main():
     if stop_button:
         st.session_state.is_running = False
 
-    # WebRTC Callback for streaming
-    def audio_callback(frame):
-        if st.session_state.is_running:
-            input_audio = np.frombuffer(frame.data, dtype=np.int16)
-            processed_audio = noise_cancellation(input_audio, mode, reduction_level)
-            return processed_audio.tobytes()
-        return frame.data
+    # We will create a custom AudioProcessor to apply noise cancellation
+    class NoiseCancellationProcessor(AudioProcessorBase):
+        def __init__(self, mode, reduction_level):
+            self.mode = mode
+            self.reduction_level = reduction_level
 
-    vad = webrtcvad.Vad()
-    vad.set_mode(0)  # Set to Normal mode (0), or adjust as necessary
-
-    st.write("🔊 Noise cancellation is running...")
+        def transform(self, frame):
+            if st.session_state.is_running:
+                input_audio = np.frombuffer(frame.data, dtype=np.int16)
+                processed_audio = noise_cancellation(input_audio, self.mode, self.reduction_level)
+                return processed_audio.tobytes()
+            return frame.data
 
     # Streamlit-webrtc
-    webrtc_ctx = webrtc.Context(
-        audio_config=webrtc.AudioConfig(channels=CHANNELS, sample_rate=RATE),
-        audio_processor_factory=lambda: webrtcvad.VadProcessor(vad, audio_callback),
+    rtc_config = RTCConfiguration(
+        ice_servers=[]
+    )  # You can specify ICE servers if needed
+
+    webrtc_streamer(
+        key="noise-cancellation",
+        mode=webrtc_streamer.RECEIVE_MODE,
+        rtc_configuration=rtc_config,
+        audio_processor_factory=lambda: NoiseCancellationProcessor(mode, reduction_level),
     )
-    
-    if webrtc_ctx.running():
-        st.write("🎵 Real-time audio processing with noise cancellation in progress...")
 
     output_dir = "output_audio"
     os.makedirs(output_dir, exist_ok=True)
