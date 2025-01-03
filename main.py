@@ -1,5 +1,5 @@
 import streamlit as st
-import sounddevice as sd
+import pyaudio
 import numpy as np
 import wave
 import os
@@ -7,29 +7,29 @@ import time
 
 # Constants for audio processing
 CHUNK = 1024  # Number of audio frames per buffer
-FORMAT = np.int16  # 16-bit resolution
+FORMAT = pyaudio.paInt16  # 16-bit resolution
 CHANNELS = 1  # Mono audio
 RATE = 44100  # Sampling rate in Hz
 
 # Noise cancellation function
 def noise_cancellation(input_audio, mode="single_speaker", reduction_level=0.8):
+    """
+    Perform noise cancellation on the input audio.
+
+    :param input_audio: Numpy array of audio samples.
+    :param mode: 'single_speaker' or 'multiple_speakers'.
+    :param reduction_level: Strength of noise reduction (0 to 1).
+    :return: Processed audio samples.
+    """
     if mode == "single_speaker":
-        noise_profile = np.mean(input_audio)
+        noise_profile = np.mean(input_audio)  # Estimate noise as mean
     elif mode == "multiple_speakers":
-        noise_profile = np.median(input_audio)
+        noise_profile = np.median(input_audio)  # Estimate noise as median
     else:
         raise ValueError("Invalid mode. Choose 'single_speaker' or 'multiple_speakers'.")
 
     processed_audio = input_audio - reduction_level * noise_profile
     return np.clip(processed_audio, -32768, 32767).astype(np.int16)
-
-# Function to find a valid audio device
-def find_valid_device():
-    devices = sd.query_devices()
-    for i, device in enumerate(devices):
-        if device['max_input_channels'] > 0:  # Check if the device has input channels
-            return i  # Return the first valid device ID
-    return None  # No valid device found
 
 # Streamlit app
 def main():
@@ -47,6 +47,7 @@ def main():
         """Control the real-time noise cancellation process using the buttons below."""
     )
 
+    # Persistent state for buttons
     if "is_running" not in st.session_state:
         st.session_state.is_running = False
 
@@ -57,48 +58,62 @@ def main():
     start_button = st.sidebar.button("▶️ Start Noise Cancellation")
     stop_button = st.sidebar.button("⏹ Stop Noise Cancellation")
 
-    output_dir = "output_audio"
-    os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, "processed_audio.wav")
-
     if start_button:
         st.session_state.is_running = True
 
     if stop_button:
         st.session_state.is_running = False
 
+    # Output directory for processed audio
+    output_dir = "output_audio"
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, "processed_audio.wav")
+
     if st.session_state.is_running:
         st.write("🔊 Noise cancellation is running...")
 
+        p = pyaudio.PyAudio()
+        stream = p.open(
+            format=FORMAT,
+            channels=CHANNELS,
+            rate=RATE,
+            input=True,
+            output=True,
+            frames_per_buffer=CHUNK,
+        )
+
         frames = []
-        device_id = find_valid_device()  # Get a valid device ID
 
-        if device_id is not None:
-            st.write(f"Using device ID: {device_id}")
-
-            def callback(indata, outdata, frames, time, status):
-                if status:
-                    st.error(status)
-                input_audio = indata[:, 0]
+        try:
+            while st.session_state.is_running:
+                raw_data = stream.read(CHUNK, exception_on_overflow=False)
+                input_audio = np.frombuffer(raw_data, dtype=np.int16)
                 processed_audio = noise_cancellation(
                     input_audio, mode=mode, reduction_level=reduction_level
                 )
-                outdata[:, 0] = processed_audio
+                stream.write(processed_audio.tobytes())
                 frames.append(processed_audio.tobytes())
 
-            with sd.Stream(callback=callback, channels=CHANNELS, samplerate=RATE, device=device_id):
-                while st.session_state.is_running:
-                    time.sleep(0.01)
+                # Allow Streamlit to update the UI
+                time.sleep(0.01)
+        except Exception as e:
+            st.error(f"Error: {e}")
+        finally:
+            stream.stop_stream()
+            stream.close()
+            p.terminate()
 
-            with wave.open(output_file, "wb") as wf:
-                wf.setnchannels(CHANNELS)
-                wf.setsampwidth(2)
-                wf.setframerate(RATE)
-                wf.writeframes(b"".join(frames))
-                st.success(f"✅ Processed audio saved to {output_file}")
-        else:
-            st.error("No valid audio input devices found.")
+            # Save the processed audio
+            wf = wave.open(output_file, "wb")
+            wf.setnchannels(CHANNELS)
+            wf.setsampwidth(p.get_sample_size(FORMAT))
+            wf.setframerate(RATE)
+            wf.writeframes(b"".join(frames))
+            wf.close()
 
+            st.success(f"✅ Processed audio saved to {output_file}")
+
+    # Playback the saved audio
     if os.path.exists(output_file) and not st.session_state.is_running:
         st.subheader("🎵 Processed Audio Playback")
         with open(output_file, "rb") as audio_file:
